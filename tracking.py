@@ -3,9 +3,7 @@ from bs4 import BeautifulSoup
 import datetime
 import logging
 import hashlib
-# Removed Playwright imports
-# from playwright.sync_api import sync_playwright, Error as PlaywrightError
-# from playwright_stealth import stealth_sync
+import sqlite3
 import json
 import os
 import random # Keep for now, might not be needed with SB UC
@@ -24,55 +22,152 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Constants for persistent storage
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) # Get the directory of the current script
-STORAGE_FILE = os.path.join(SCRIPT_DIR, 'seen_items_store.json') # Path relative to the script
+DATABASE_FILE = os.path.join(SCRIPT_DIR, 'seen_items.db') # SQLite database file
 MAX_STORED_IDENTIFIERS = 500
 
-# --- Persistence Functions ---
+# --- Database Functions ---
 
-def load_seen_items(filename=STORAGE_FILE):
-    """Loads seen item dictionaries from a JSON file."""
-    abs_filename = os.path.abspath(filename)
-    logging.info(f"Attempting to load seen items from: {abs_filename}")
-    if os.path.exists(filename):
-        try:
-            with open(filename, 'r', encoding='utf-8') as f:
-                item_objects_list = json.load(f)
-                if not isinstance(item_objects_list, list):
-                    logging.error(f"Invalid format in {abs_filename}. Expected a list. Starting fresh.")
-                    return [], set()
-                
-                # Derive the set of identifiers from the loaded objects
-                identifiers_set = set(item.get('identifier') for item in item_objects_list if item.get('identifier'))
-                logging.info(f"Loaded {len(item_objects_list)} items ({len(identifiers_set)} unique identifiers) from {abs_filename}")
-                return item_objects_list, identifiers_set
-        except (json.JSONDecodeError, IOError) as e:
-            logging.error(f"Error loading seen items from {abs_filename}: {e}. Starting fresh.")
-            return [], set()
-    else:
-        logging.info(f"Storage file {abs_filename} not found. Starting fresh.")
+def init_database(db_path=DATABASE_FILE):
+    """Initialize the SQLite database and create the items table if it doesn't exist."""
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Create table with composite unique constraint on timestamp + title
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS seen_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                title TEXT,
+                description TEXT,
+                link TEXT,
+                identifier TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(timestamp, title)
+            )
+        ''')
+        
+        # Create index on timestamp and title for faster lookups
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp_title ON seen_items(timestamp, title)')
+        
+        conn.commit()
+        conn.close()
+        logging.info(f"Database initialized at: {os.path.abspath(db_path)}")
+    except sqlite3.Error as e:
+        logging.error(f"Error initializing database: {e}")
+
+def load_seen_items(db_path=DATABASE_FILE):
+    """Loads seen item dictionaries from SQLite database."""
+    abs_db_path = os.path.abspath(db_path)
+    logging.info(f"Attempting to load seen items from: {abs_db_path}")
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Get all items ordered by creation time (most recent last)
+        cursor.execute('''
+            SELECT timestamp, title, description, link, identifier 
+            FROM seen_items 
+            ORDER BY created_at ASC
+        ''')
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        # Convert to the same format as before
+        item_objects_list = []
+        # Track composite keys (timestamp + title) instead of just identifiers
+        composite_keys_set = set()
+        
+        for row in rows:
+            timestamp, title, description, link, identifier = row
+            item_object = {
+                "timestamp": timestamp,
+                "title": title,
+                "description": description,
+                "link": link,
+                "identifier": identifier
+            }
+            item_objects_list.append(item_object)
+            # Create composite key from timestamp and title
+            composite_key = f"{timestamp}|{title}"
+            composite_keys_set.add(composite_key)
+        
+        logging.info(f"Loaded {len(item_objects_list)} items ({len(composite_keys_set)} unique timestamp+title combinations) from {abs_db_path}")
+        return item_objects_list, composite_keys_set
+        
+    except sqlite3.Error as e:
+        logging.error(f"Error loading seen items from {abs_db_path}: {e}. Starting fresh.")
         return [], set()
 
-def save_seen_items(item_objects_list, filename=STORAGE_FILE, max_items=MAX_STORED_IDENTIFIERS):
-    """Saves seen item dictionaries to a JSON file, keeping only the most recent ones."""
-    abs_filename = os.path.abspath(filename)
+def save_seen_items(item_objects_list, db_path=DATABASE_FILE, max_items=MAX_STORED_IDENTIFIERS):
+    """Saves seen item dictionaries to SQLite database, keeping only the most recent ones."""
+    abs_db_path = os.path.abspath(db_path)
     try:
-        # Keep only the latest max_items objects
-        if len(item_objects_list) > max_items:
-            trimmed_list = item_objects_list[-max_items:]
-            logging.info(f"Trimming seen items storage from {len(item_objects_list)} to {len(trimmed_list)}.")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Clean up old items if we exceed max_items
+        cursor.execute('SELECT COUNT(*) FROM seen_items')
+        current_count = cursor.fetchone()[0]
+        
+        if current_count > max_items:
+            # Keep only the most recent max_items
+            cursor.execute('''
+                DELETE FROM seen_items 
+                WHERE id NOT IN (
+                    SELECT id FROM seen_items 
+                    ORDER BY created_at DESC 
+                    LIMIT ?
+                )
+            ''', (max_items,))
+            
+            deleted_count = cursor.rowcount
+            logging.info(f"Trimmed seen items storage by removing {deleted_count} old items.")
+        
+        conn.commit()
+        conn.close()
+        
+    except sqlite3.Error as e:
+        logging.error(f"Error trimming seen items in {abs_db_path}: {e}")
+
+def add_new_item(item_object, db_path=DATABASE_FILE):
+    """Add a single new item to the SQLite database."""
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Insert the new item (will be ignored if timestamp+title combination already exists)
+        cursor.execute('''
+            INSERT OR IGNORE INTO seen_items (timestamp, title, description, link, identifier)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            item_object['timestamp'],
+            item_object['title'], 
+            item_object['description'],
+            item_object['link'],
+            item_object['identifier']
+        ))
+        
+        if cursor.rowcount > 0:
+            logging.debug(f"Added new item to database: {item_object['title'][:50]}...")
         else:
-            trimmed_list = item_objects_list
+            logging.debug(f"Item already exists in database (timestamp+title duplicate): {item_object['title'][:50]}...")
+        
+        conn.commit()
+        conn.close()
+        
+    except sqlite3.Error as e:
+        logging.error(f"Error adding item to database: {e}")
 
-        with open(filename, 'w', encoding='utf-8') as f:
-            json.dump(trimmed_list, f, ensure_ascii=False, indent=4)
-        # logging.info(f"Saved {len(trimmed_list)} items to {abs_filename}") # Can be noisy
-    except IOError as e:
-        logging.error(f"Error saving seen items to {abs_filename}: {e}")
+# --- End Database Functions ---
 
-# --- End Persistence Functions ---
+# Initialize database on module load
+init_database()
 
 # Load seen items on module initialization
-seen_item_objects_list, seen_item_identifiers_set = load_seen_items()
+seen_item_objects_list, seen_item_composite_keys_set = load_seen_items()
 
 # Define User Agents - Keep for now, SB UC might handle this or we might re-add if needed
 USER_AGENTS = [
@@ -173,7 +268,11 @@ def get_new_items(url):
                 content_to_hash = (title + description).encode('utf-8')
                 identifier = hashlib.sha256(content_to_hash).hexdigest()
 
-            if identifier and identifier not in seen_item_identifiers_set:
+            # Create composite key from timestamp and title
+            composite_key = f"{pub_date}|{title}"
+            
+            # Check if this timestamp+title combination is already seen
+            if composite_key not in seen_item_composite_keys_set:
                 item_object = {
                     "timestamp": pub_date,
                     "title": title,
@@ -182,13 +281,20 @@ def get_new_items(url):
                     "identifier": identifier
                 }
                 
+                # Add to SQLite database
+                add_new_item(item_object)
+                
+                # Update in-memory tracking
                 seen_item_objects_list.append(item_object)
-                seen_item_identifiers_set.add(identifier)
+                seen_item_composite_keys_set.add(composite_key)
                 
                 new_items_found.append(item_object)
                 logging.info(f"New item found: {title[:50]}... (Published: {pub_date})")
                 
+                # Periodically clean up old items in database
                 save_seen_items(seen_item_objects_list)
+            else:
+                logging.debug(f"Duplicate item skipped (timestamp+title already exists): {title[:50]}... (Published: {pub_date})")
 
     except Exception as e:
         logging.error(f"Error parsing content from {url}: {e}", exc_info=True) # Log traceback for parsing errors
