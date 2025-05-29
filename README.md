@@ -39,7 +39,12 @@
    pip install -r requirements.txt
    ```
 
-3. **▶️ Run the application**:
+3. **🌍 (Optional) Configure environment variables**:
+   Create a `.env` file in the project root to customize the RSS URL:
+   ```bash
+   ```
+
+4. **▶️ Run the application**:
    ```bash
    python main.py
    ```
@@ -210,6 +215,21 @@ ws.onmessage = function(event) {
 ```
 
 ## ⚙️ Configuration
+
+### 🌍 Environment Variables
+
+The application supports configuration via environment variables. Create a `.env` file in the project root:
+
+```bash
+# RSS feed URL to monitor
+URL=""
+
+# You can change this to monitor any other RSS feed
+# URL=https://example.com/rss.xml
+```
+
+**Available Environment Variables:**
+- `URL`: RSS feed URL to monitor (default: NSE announcements RSS)
 
 ### 🔧 Default Settings
 

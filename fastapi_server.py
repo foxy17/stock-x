@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from typing import List, Set, Dict, Any
 from datetime import datetime
 import json
@@ -9,6 +10,14 @@ from email.utils import parsedate_to_datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# Load environment variables
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv not available, continue without it
+    pass
 
 # Import tracking functions
 try:
@@ -23,7 +32,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Global state for WebSocket connections and polling
 connected_clients: List[WebSocket] = []
 polling_active: bool = False
-polling_url: str = "https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml"
+polling_url: str = os.getenv("URL")
 polling_task: asyncio.Task = None
 
 @asynccontextmanager
@@ -91,7 +100,7 @@ class StatusResponse(BaseModel):
     url: str
 
 class StartPollingRequest(BaseModel):
-    url: str = "https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml"
+    url: str = os.getenv("URL")
 
 # WebSocket manager class
 class ConnectionManager:
