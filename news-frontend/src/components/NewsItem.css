@@ -50,6 +50,8 @@
   border-radius: 6px;
   border: 1px solid #555555;
   font-weight: 500;
+  letter-spacing: 1px;
+  line-height: 1.2;
 }
 
 .news-item__description {

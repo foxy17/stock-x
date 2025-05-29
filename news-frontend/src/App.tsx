@@ -32,15 +32,6 @@ function App() {
             isConnected={webSocketState.isConnected}
           />
         </main>
-
-        <footer className="app__footer">
-          <p>
-            Connected to: <code>{WS_URL}</code>
-          </p>
-          <p>
-            Built with React + TypeScript + Vite
-          </p>
-        </footer>
       </div>
     </div>
   );

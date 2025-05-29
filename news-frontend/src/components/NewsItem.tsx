@@ -10,13 +10,30 @@ export const NewsItem: React.FC<NewsItemProps> = ({ item, highlightColor }) => {
   const formatTimestamp = (timestamp: string) => {
     try {
       const date = new Date(timestamp);
-      return date.toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      const today = new Date();
+      
+      // Check if it's today (same year, month, and day)
+      const isToday = date.getFullYear() === today.getFullYear() &&
+                     date.getMonth() === today.getMonth() &&
+                     date.getDate() === today.getDate();
+      
+      if (isToday) {
+        // Show only time for today
+        return date.toLocaleString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+      } else {
+        // Show date without year for other days
+        return date.toLocaleString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+      }
     } catch {
       return timestamp;
     }
