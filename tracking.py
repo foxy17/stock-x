@@ -10,7 +10,7 @@ import random # Keep for now, might not be needed with SB UC
 import time # Keep for potential waits if needed
 
 # Import SeleniumBase
-from seleniumbase import SB
+from seleniumbase import Driver
 # Removed selenium-wire/uc imports
 # import seleniumwire.undetected_chromedriver as uc
 # from selenium.webdriver.chrome.options import Options
@@ -24,6 +24,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) # Get the directory of the current script
 DATABASE_FILE = os.path.join(SCRIPT_DIR, 'seen_items.db') # SQLite database file
 MAX_STORED_IDENTIFIERS = 100
+# In-memory cache for recent identifiers (keep more in memory for faster lookups)
+MEMORY_CACHE_SIZE = 500
+
+# Browser session management
+persistent_browser = None
+browser_refresh_counter = 0
+MAX_BROWSER_REUSES = 20  # Refresh browser after 20 uses
 
 # --- Database Functions ---
 
@@ -46,17 +53,23 @@ def init_database(db_path=DATABASE_FILE):
             )
         ''')
         
-        # Create index on identifier for faster lookups
+        # Create composite index on timestamp and identifier for faster lookups
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp_identifier ON seen_items(timestamp DESC, identifier)')
+        
+        # Create individual index on identifier for unique lookups
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_identifier ON seen_items(identifier)')
+        
+        # Create index on created_at for cleanup operations
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_created_at ON seen_items(created_at DESC)')
         
         conn.commit()
         conn.close()
-        logging.info(f"Database initialized at: {os.path.abspath(db_path)}")
+        logging.info(f"Database initialized with optimized indexes at: {os.path.abspath(db_path)}")
     except sqlite3.Error as e:
         logging.error(f"Error initializing database: {e}")
 
 def load_seen_items(db_path=DATABASE_FILE):
-    """Loads seen item dictionaries from SQLite database."""
+    """Loads seen item dictionaries from SQLite database with optimized in-memory caching."""
     abs_db_path = os.path.abspath(db_path)
     logging.info(f"Attempting to load seen items from: {abs_db_path}")
     
@@ -64,11 +77,11 @@ def load_seen_items(db_path=DATABASE_FILE):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Get all items ordered by creation time (most recent last)
+        # Get all items ordered by creation time (most recent first)
         cursor.execute('''
             SELECT timestamp, title, description, link, identifier 
             FROM seen_items 
-            ORDER BY created_at ASC
+            ORDER BY created_at DESC
         ''')
         
         rows = cursor.fetchall()
@@ -76,7 +89,7 @@ def load_seen_items(db_path=DATABASE_FILE):
         
         # Convert to the same format as before
         item_objects_list = []
-        # Track identifiers instead of composite keys
+        # Use set for O(1) lookup, but limit size for memory efficiency
         identifiers_set = set()
         
         for row in rows:
@@ -89,9 +102,12 @@ def load_seen_items(db_path=DATABASE_FILE):
                 "identifier": identifier
             }
             item_objects_list.append(item_object)
-            identifiers_set.add(identifier)
+            
+            # Only keep recent identifiers in memory cache for faster lookups
+            if len(identifiers_set) < MEMORY_CACHE_SIZE:
+                identifiers_set.add(identifier)
         
-        logging.info(f"Loaded {len(item_objects_list)} items ({len(identifiers_set)} unique identifiers) from {abs_db_path}")
+        logging.info(f"Loaded {len(item_objects_list)} items with {len(identifiers_set)} identifiers cached in memory from {abs_db_path}")
         return item_objects_list, identifiers_set
         
     except sqlite3.Error as e:
@@ -174,7 +190,217 @@ def add_new_item(item_object, db_path=DATABASE_FILE):
         logging.error(f"✗ Database error adding item: {e}")
         return False
 
+def batch_add_new_items(item_objects_list, db_path=DATABASE_FILE):
+    """Batch insert multiple new items to SQLite database for better performance."""
+    if not item_objects_list:
+        return []
+    
+    abs_db_path = os.path.abspath(db_path)
+    logging.info(f"Attempting to batch add {len(item_objects_list)} items to database: {abs_db_path}")
+    
+    successful_items = []
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # First, get ALL identifiers from the items we want to add
+        identifiers_to_check = [item['identifier'] for item in item_objects_list]
+        
+        # Remove duplicates within the batch itself
+        unique_identifiers = []
+        seen_in_batch = set()
+        unique_items = []
+        
+        for item in item_objects_list:
+            if item['identifier'] not in seen_in_batch:
+                unique_identifiers.append(item['identifier'])
+                unique_items.append(item)
+                seen_in_batch.add(item['identifier'])
+            else:
+                logging.debug(f"Duplicate within batch: {item['title'][:50]}...")
+        
+        logging.info(f"After removing batch duplicates: {len(unique_items)} unique items")
+        
+        # Batch check which identifiers already exist in database
+        existing_identifiers = set()
+        if unique_identifiers:
+            # Split into chunks to avoid SQL query limits
+            chunk_size = 500  # SQLite variable limit is typically 999
+            for i in range(0, len(unique_identifiers), chunk_size):
+                chunk = unique_identifiers[i:i+chunk_size]
+                placeholders = ','.join('?' * len(chunk))
+                cursor.execute(f'SELECT identifier FROM seen_items WHERE identifier IN ({placeholders})', chunk)
+                existing_identifiers.update(row[0] for row in cursor.fetchall())
+        
+        # Prepare data for items that truly don't exist
+        batch_data = []
+        items_to_add = []
+        
+        for item_object in unique_items:
+            if item_object['identifier'] not in existing_identifiers:
+                batch_data.append((
+                    item_object['timestamp'],
+                    item_object['title'],
+                    item_object['description'],
+                    item_object['link'],
+                    item_object['identifier']
+                ))
+                items_to_add.append(item_object)
+            else:
+                logging.debug(f"Skipping database duplicate: {item_object['title'][:50]}...")
+        
+        logging.info(f"After removing database duplicates: {len(items_to_add)} items to insert")
+        
+        # Batch insert all new items
+        if batch_data:
+            try:
+                cursor.executemany('''
+                    INSERT INTO seen_items (timestamp, title, description, link, identifier)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', batch_data)
+                
+                rows_inserted = cursor.rowcount
+                conn.commit()
+                
+                if rows_inserted > 0:
+                    logging.info(f"✓ Successfully batch inserted {rows_inserted} new items to database")
+                    successful_items = items_to_add
+                else:
+                    logging.warning(f"✗ Batch insert failed - no rows affected")
+                    
+            except sqlite3.IntegrityError as e:
+                # Handle any remaining unique constraint violations gracefully
+                logging.warning(f"Integrity error during batch insert (some duplicates may exist): {e}")
+                # Fall back to individual inserts for the problematic batch
+                conn.rollback()
+                successful_items = []
+                
+                for item_data, item_object in zip(batch_data, items_to_add):
+                    try:
+                        cursor.execute('''
+                            INSERT INTO seen_items (timestamp, title, description, link, identifier)
+                            VALUES (?, ?, ?, ?, ?)
+                        ''', item_data)
+                        successful_items.append(item_object)
+                    except sqlite3.IntegrityError:
+                        logging.debug(f"Skipping duplicate item in fallback: {item_object['title'][:50]}...")
+                        continue
+                
+                if successful_items:
+                    conn.commit()
+                    logging.info(f"✓ Fallback individual inserts: {len(successful_items)} items added")
+                    
+        else:
+            logging.info("No new items to insert - all were duplicates")
+        
+        conn.close()
+        
+    except sqlite3.Error as e:
+        logging.error(f"✗ Database error during batch insert: {e}")
+        
+    return successful_items
+
+def check_identifier_exists(identifier, db_path=DATABASE_FILE):
+    """Check if identifier exists in database (used for cache misses)."""
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM seen_items WHERE identifier = ?', (identifier,))
+        exists = cursor.fetchone()[0] > 0
+        conn.close()
+        return exists
+    except sqlite3.Error as e:
+        logging.error(f"Error checking identifier existence: {e}")
+        return False
+
+def update_memory_cache(new_identifiers):
+    """Update the in-memory cache with new identifiers, maintaining size limit."""
+    global seen_item_identifiers_set
+    
+    # Add new identifiers to cache
+    for identifier in new_identifiers:
+        seen_item_identifiers_set.add(identifier)
+    
+    # If cache is too large, remove oldest identifiers
+    # Note: In practice, you might want to implement LRU cache or use a proper cache library
+    if len(seen_item_identifiers_set) > MEMORY_CACHE_SIZE:
+        # Convert to list, sort, and keep most recent
+        # This is a simple implementation; for better performance, consider using collections.OrderedDict
+        excess_count = len(seen_item_identifiers_set) - MEMORY_CACHE_SIZE
+        identifiers_list = list(seen_item_identifiers_set)
+        # Remove first N items (oldest in insertion order - not perfect but acceptable)
+        for i in range(excess_count):
+            seen_item_identifiers_set.discard(identifiers_list[i])
+        
+        logging.debug(f"Trimmed memory cache, now contains {len(seen_item_identifiers_set)} identifiers")
+
 # --- End Database Functions ---
+
+# --- Browser Session Management ---
+
+def initialize_persistent_browser():
+    """Initialize a persistent SeleniumBase browser session."""
+    global persistent_browser, browser_refresh_counter
+    
+    try:
+        # Close existing browser if any
+        cleanup_persistent_browser()
+        
+        # Randomly select a user agent for this session
+        selected_agent = random.choice(USER_AGENTS)
+        logging.info(f"Initializing persistent browser with User-Agent: {selected_agent}")
+        
+        # Create new browser session (not using context manager)
+        persistent_browser = Driver(uc=True, headless=True, agent=selected_agent)
+        
+        # Driver automatically initializes - no need for setUp()
+        
+        browser_refresh_counter = 0
+        logging.info("✓ Persistent browser session initialized successfully")
+        return True
+        
+    except Exception as e:
+        logging.error(f"✗ Failed to initialize persistent browser: {e}")
+        persistent_browser = None
+        return False
+
+def cleanup_persistent_browser():
+    """Clean up the persistent browser session."""
+    global persistent_browser
+    
+    if persistent_browser:
+        try:
+            persistent_browser.quit()
+            logging.info("✓ Persistent browser session closed")
+        except Exception as e:
+            logging.warning(f"Warning during browser cleanup: {e}")
+        finally:
+            persistent_browser = None
+
+def should_refresh_browser():
+    """Check if browser should be refreshed based on usage count."""
+    global browser_refresh_counter
+    return browser_refresh_counter >= MAX_BROWSER_REUSES
+
+def get_persistent_browser():
+    """Get the persistent browser, initializing or refreshing if needed."""
+    global persistent_browser, browser_refresh_counter
+    
+    # Initialize browser if it doesn't exist
+    if persistent_browser is None:
+        if not initialize_persistent_browser():
+            return None
+    
+    # Refresh browser if it's been used too many times
+    elif should_refresh_browser():
+        logging.info(f"Browser has been used {browser_refresh_counter} times. Refreshing session...")
+        if not initialize_persistent_browser():
+            return None
+    
+    return persistent_browser
+
+# --- End Browser Session Management ---
 
 # Initialize database on module load
 init_database()
@@ -207,54 +433,61 @@ def get_initial_items():
     return list(seen_item_objects_list)
 
 def fetch_content(url):
-    """Fetches XML content using SeleniumBase with UC Mode."""
+    """Fetches XML content using persistent SeleniumBase browser session."""
+    global browser_refresh_counter
+    
     xml_content = None
-    logging.info(f"Initializing SeleniumBase SB with UC Mode for URL: {url}")
+    logging.info(f"Fetching content from: {url} (browser usage: {browser_refresh_counter + 1}/{MAX_BROWSER_REUSES})")
 
     try:
-        # Using SB context manager with UC Mode enabled
-        # headless=True runs browser in the background
-        # Randomly select a user agent for this run
-        selected_agent = random.choice(USER_AGENTS)
-        logging.info(f"Using User-Agent: {selected_agent}")
+        # Get persistent browser instance
+        browser = get_persistent_browser()
+        if not browser:
+            logging.error("Failed to get persistent browser instance")
+            return None
+        
+        # Navigate to URL using persistent browser
+        logging.info(f"Navigating to: {url}")
+        browser.open(url)
+        
+        # Increment usage counter
+        browser_refresh_counter += 1
+        
+        # Get page source
+        xml_content = browser.get_page_source()
 
-        with SB(uc=True, headless=True, test=True, locale_code="en", agent=selected_agent) as sb:
-            logging.info(f"Navigating to: {url}")
-            sb.open(url)
+        # Optional: Basic check if it looks like a challenge page
+        if xml_content and ("challenge-page" in browser.get_current_url() or "Just a moment..." in xml_content):
+            logging.warning(f"Page source might contain challenge elements for {url}. Content may be invalid.")
+            # Could implement retry logic here if needed
 
-            # Get source immediately. SeleniumBase UC mode aims to handle challenges transparently.
-            # More complex challenge handling might be needed if this fails.
-            xml_content = sb.get_page_source()
-
-            # Optional: Basic check AFTER getting source if it looks like a challenge page still
-            # This is less reliable than proactive checks during navigation if SB provides them
-            if xml_content and ("challenge-page" in sb.get_current_url() or "Just a moment..." in xml_content):
-                 logging.warning(f"Page source might still contain challenge elements for {url}. Check content validity.")
-                 # Depending on requirements, you might want to return None or raise an error here
-                 # return None
-
-            if xml_content:
-                logging.info(f"Successfully fetched page source for {url}.")
-                # Log preview (optional, can be verbose)
-                # logging.info(f"Page source preview (first 500 chars):\n{xml_content[:500]}...")
-            else:
-                logging.warning(f"Fetched page source for {url} is empty.")
+        if xml_content:
+            logging.info(f"✓ Successfully fetched page source for {url} (session usage: {browser_refresh_counter}/{MAX_BROWSER_REUSES})")
+        else:
+            logging.warning(f"✗ Fetched page source for {url} is empty")
 
     except Exception as e:
-        # Catch broader exceptions as SB might raise different types
-        logging.error(f"An error occurred during SeleniumBase operation for {url}: {e}", exc_info=True) # Log traceback
-    # SB context manager handles driver closing automatically
+        logging.error(f"✗ Error during persistent browser operation for {url}: {e}", exc_info=True)
+        
+        # On error, try to reinitialize browser for next attempt
+        logging.info("Attempting to reinitialize browser due to error...")
+        cleanup_persistent_browser()
+        browser_refresh_counter = 0
 
     return xml_content
 
 def get_new_items(url):
-    """Fetches XML, parses it, and returns a list of new items (dictionaries) based on NSE structure, using persistent memory."""
+    """Fetches XML, parses it, and returns a list of new items with optimized processing."""
     xml_content = fetch_content(url)
     if not xml_content:
         logging.warning(f"fetch_content returned no data for {url}. Skipping parsing.")
         return []
 
     new_items_found = []
+    potential_new_items = []
+    consecutive_known_items = 0
+    max_consecutive_known = 10  # Stop after 10 consecutive known items (assuming chronological order)
+    
     try:
         # Use 'lxml-xml' for potentially stricter XML parsing
         soup = BeautifulSoup(xml_content, 'lxml-xml') 
@@ -267,11 +500,12 @@ def get_new_items(url):
             items = soup.find_all('item')
             if not items:
                  logging.warning("No <item> tags found using 'html.parser' either.")
-
+                 return []
 
         logging.info(f"Found {len(items)} <item> tags in the fetched content.")
 
-        for item in items:
+        # Process items with early exit strategy
+        for i, item in enumerate(items):
             title_tag = item.find('title')
             description_tag = item.find('description')
             link_tag = item.find('link')
@@ -291,8 +525,21 @@ def get_new_items(url):
                 content_to_hash = (title + description).encode('utf-8')
                 identifier = hashlib.sha256(content_to_hash).hexdigest()
 
-            # Check if this identifier is already seen
-            if identifier not in seen_item_identifiers_set:
+            # Optimized identifier checking with cache + database fallback
+            is_known_item = False
+            
+            # First check in-memory cache (O(1) lookup)
+            if identifier in seen_item_identifiers_set:
+                is_known_item = True
+            else:
+                # Cache miss - check database (this is expensive but necessary for accuracy)
+                if check_identifier_exists(identifier):
+                    is_known_item = True
+                    # Add to cache for future lookups
+                    seen_item_identifiers_set.add(identifier)
+
+            if not is_known_item:
+                # This is a new item
                 item_object = {
                     "timestamp": pub_date,
                     "title": title,
@@ -300,21 +547,84 @@ def get_new_items(url):
                     "link": link_text,
                     "identifier": identifier
                 }
-                
-                # Add to SQLite database
-                if add_new_item(item_object):
-                    # Update in-memory tracking only if successfully added to DB
-                    seen_item_objects_list.append(item_object)
-                    seen_item_identifiers_set.add(identifier)
-                    new_items_found.append(item_object)
-                    logging.info(f"New item found: {title[:50]}... (Published: {pub_date})")
-                    
-                    # Trim database if it exceeds the limit
-                    save_seen_items(seen_item_objects_list)
+                potential_new_items.append(item_object)
+                consecutive_known_items = 0  # Reset counter
+                logging.debug(f"New item candidate: {title[:50]}... (Published: {pub_date})")
             else:
-                logging.debug(f"Duplicate item skipped (identifier already exists): {title[:50]}... (Published: {pub_date})")
+                consecutive_known_items += 1
+                logging.debug(f"Known item skipped: {title[:50]}... (consecutive: {consecutive_known_items})")
+                
+                # Early exit strategy: if we've seen many consecutive known items,
+                # assume we've reached the "old" part of the RSS feed
+                if consecutive_known_items >= max_consecutive_known:
+                    logging.info(f"Early exit: Found {consecutive_known_items} consecutive known items. "
+                               f"Processed {i+1}/{len(items)} items. Assuming remaining items are old.")
+                    break
+
+        # Batch process all new items
+        if potential_new_items:
+            logging.info(f"Processing {len(potential_new_items)} potential new items in batch...")
+            
+            # Batch insert to database
+            successfully_added = batch_add_new_items(potential_new_items)
+            
+            if successfully_added:
+                # Update in-memory tracking
+                for item_object in successfully_added:
+                    seen_item_objects_list.append(item_object)
+                    new_items_found.append(item_object)
+                
+                # Update memory cache with new identifiers
+                new_identifiers = [item['identifier'] for item in successfully_added]
+                update_memory_cache(new_identifiers)
+                
+                logging.info(f"✓ Successfully processed {len(successfully_added)} new items")
+                
+                # Trim database less frequently (only if we added items)
+                save_seen_items(seen_item_objects_list)
+            else:
+                logging.info("No new items were actually added (all were duplicates)")
+        else:
+            logging.info("No new items found during parsing")
 
     except Exception as e:
-        logging.error(f"Error parsing content from {url}: {e}", exc_info=True) # Log traceback for parsing errors
+        logging.error(f"Error parsing content from {url}: {e}", exc_info=True)
 
     return new_items_found
+
+if __name__ == "__main__":
+    import time
+    start_time = time.time()
+    
+    url = "https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml"
+    
+    try:
+        # Test multiple calls to show browser persistence
+        print(f"\n{'='*60}")
+        print("PERSISTENT BROWSER TEST - Multiple Calls")
+        print(f"{'='*60}")
+        
+        for i in range(3):
+            print(f"\n--- Call {i+1}/3 ---")
+            call_start = time.time()
+            items = get_new_items(url)
+            call_end = time.time()
+            print(f"Call {i+1}: Found {len(items)} new items in {call_end - call_start:.2f} seconds")
+            print(f"Browser usage count: {browser_refresh_counter}/20")
+            time.sleep(1)  # Small delay between calls
+        
+        end_time = time.time()
+        
+        print(f"\n{'='*60}")
+        print(f"FINAL RESULTS:")
+        print(f"{'='*60}")
+        print(f"Total time for 3 calls: {end_time - start_time:.2f} seconds")
+        print(f"Average time per call: {(end_time - start_time)/3:.2f} seconds")
+        print(f"In-memory cache size: {len(seen_item_identifiers_set)}")
+        print(f"Total items in database: {len(seen_item_objects_list)}")
+        print(f"Browser usage count: {browser_refresh_counter}/{MAX_BROWSER_REUSES}")
+        print(f"{'='*60}")
+        
+    finally:
+        # Always cleanup browser on exit
+        cleanup_persistent_browser()

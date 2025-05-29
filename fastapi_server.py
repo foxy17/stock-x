@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 # Import tracking functions
 try:
-    from tracking import get_new_items, get_initial_items
+    from tracking import get_new_items, get_initial_items, cleanup_persistent_browser
 except ImportError as e:
     print(f"Error importing from tracking.py: {e}")
     exit(1)
@@ -51,6 +51,13 @@ async def lifespan(app: FastAPI):
                 await connection.close()
             except Exception as e:
                 logging.error(f"Error closing WebSocket connection: {e}")
+    
+    # Cleanup persistent browser
+    try:
+        cleanup_persistent_browser()
+        logging.info("✓ Persistent browser cleaned up")
+    except Exception as e:
+        logging.error(f"Error cleaning up persistent browser: {e}")
     
     logging.info("Server shutdown complete")
 

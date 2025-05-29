@@ -99,14 +99,14 @@
 
 /* New item highlight styles */
 .news-item--highlight-green {
-  background: linear-gradient(135deg, #1b5e20 0%, #388e3c 100%) !important;
-  border-color: #4caf50 !important;
+  background: linear-gradient(135deg, #2a3d2a 0%, #2d4f2d 100%) !important;
+  border-color: #3d5a3d !important;
   animation: highlightPulse 0.5s ease-in-out;
 }
 
 .news-item--highlight-red {
-  background: linear-gradient(135deg, #b71c1c 0%, #d32f2f 100%) !important;
-  border-color: #f44336 !important;
+  background: linear-gradient(135deg, #3d2a2a 0%, #4f2d2d 100%) !important;
+  border-color: #5a3d3d !important;
   animation: highlightPulse 0.5s ease-in-out;
 }
 
