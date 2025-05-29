@@ -1,77 +1,107 @@
-# NSE Announcements Tracker - FastAPI Server
+# 📈 Stock-x - Real-time NSE Announcements Tracker
 
-A FastAPI-based real-time NSE announcements tracker with WebSocket support that monitors RSS feeds for new announcements and broadcasts them to connected clients.
+> 🚀 A powerful FastAPI-based real-time NSE announcements tracking system with WebSocket support
 
-## Features
+## 📸 Screenshots
 
-- **Real-time WebSocket Communication**: Get live updates of new announcements
-- **Database Storage**: Persistent SQLite storage for all announcements
-- **Background Polling**: Automatic monitoring of RSS feeds
-- **Duplicate Detection**: Prevents duplicate announcements using composite keys
-- **CORS Support**: Allows connections from any origin
-- **REST API**: Full REST endpoints for programmatic access
-- **Web Client**: Included HTML/JavaScript client for testing
+### Main Dashboard
+![Stock-x Dashboard](screenshots/image_1.png)
 
-## Requirements
+### Real-time Updates
+![Live Announcements](screenshots/image_2.png)
 
-- Python 3.8+
-- Virtual environment (recommended)
+---
 
-## Installation
+## ✨ Features
 
-1. **Install dependencies**:
+- **⚡ Real-time WebSocket Communication**: Get live updates of new announcements instantly
+- **🔌 REST API**: Full REST endpoints for programmatic access to announcements  
+- **💾 Database Storage**: Persistent SQLite storage with optimized indexing
+- **🔄 Background Polling**: Automatic monitoring of NSE RSS feeds every 5 seconds
+- **🛡️ Duplicate Detection**: Intelligent duplicate prevention using content identifiers
+- **🤖 Browser Automation**: Uses SeleniumBase with undetected Chrome for reliable RSS feed access
+- **🌐 CORS Support**: Allows connections from any origin for easy frontend integration
+- **📦 Executable Support**: Can be packaged as a standalone executable with auto-py-to-exe
+- **⚡ Memory Optimization**: Efficient caching and database cleanup
+
+## 📋 Requirements
+
+- 🐍 Python 3.8+
+- 🏠 Virtual environment (recommended)
+- 🌐 Chrome browser (for SeleniumBase automation)
+
+## 🚀 Installation
+
+1. **📂 Clone or download the project**
+
+2. **📦 Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
-2. **Initialize database** (automatic on first run):
-   The SQLite database will be created automatically when you first run the tracking system.
+3. **▶️ Run the application**:
+   ```bash
+   python main.py
+   ```
 
-## Usage
+The database will be created automatically on first run in the same directory as the executable/script.
 
-### Starting the Server
+## 💻 Usage
 
-Run the FastAPI server on localhost:5127:
+### 🏁 Starting the Server
 
+**Option 1: Run as Python script**
+```bash
+python main.py
+```
+
+**Option 2: Run FastAPI server directly**
 ```bash
 python fastapi_server.py
 ```
 
+**Option 3: Create and run executable**
+Use auto-py-to-exe to create a standalone executable that can run without Python installed.
+
 The server will start and be available at:
-- API Documentation: http://localhost:5127/docs
-- WebSocket Endpoint: ws://localhost:5127/ws
-- Health Check: http://localhost:5127/health
+- 🌐 Main API: http://localhost:5127
+- 🔌 WebSocket Endpoint: ws://localhost:5127/ws  
+- 📚 API Documentation: http://localhost:5127/docs
+- ❤️ Health Check: http://localhost:5127/health
 
-### Using the Web Client
+### 🔧 Building Executable
 
-Open the included HTML client:
+To create a standalone executable:
 
-```bash
-# Open websocket_client.html in your browser
-# Or serve it with a simple HTTP server:
-python -m http.server 8080
-# Then visit: http://localhost:8080/websocket_client.html
-```
+1. Install auto-py-to-exe: `pip install auto-py-to-exe`
+2. Run: `auto-py-to-exe`
+3. Configure:
+   - Script Location: `main.py`
+   - One File: Yes
+   - Console Window: Yes (to see logs)
+   - Additional Files: Include any required files
 
-## API Endpoints
+The executable will create the database (`seen_items.db`) in the same directory as the .exe file.
 
-### REST Endpoints
+## 🛠️ API Endpoints
 
-| Method | Endpoint | Description |
+### 🔗 REST Endpoints
+
+| Method | Endpoint | Description | 
 |--------|----------|-------------|
-| GET    | `/` | API information |
-| GET    | `/items` | Get all items from database |
-| GET    | `/status` | Get polling status and connection count |
-| GET    | `/health` | Health check endpoint |
-| POST   | `/start-polling` | Start polling for new items |
-| POST   | `/stop-polling` | Stop polling |
+| GET    | `/` | 📋 API information and version |
+| GET    | `/items` | 📊 Get latest 100 items from database (sorted by date) |
+| GET    | `/status` | 📈 Get polling status and connection count |
+| GET    | `/health` | ❤️ Health check endpoint |
+| POST   | `/start-polling` | ▶️ Start background polling for new items |
+| POST   | `/stop-polling` | ⏹️ Stop background polling |
 
-### WebSocket Endpoint
+### 🔌 WebSocket Endpoint
 
-- **URL**: `ws://localhost:5127/ws`
-- **Protocol**: JSON messages
+- **🌐 URL**: `ws://localhost:5127/ws`
+- **📡 Protocol**: JSON messages
 
-#### WebSocket Message Types
+#### 📨 WebSocket Message Types
 
 **From Server to Client:**
 
@@ -114,23 +144,18 @@ python -m http.server 8080
 {"type": "get_status"}
 ```
 
-## Example Usage
+## 🎨 Frontend Integration
 
-### Starting Polling via REST API
+This FastAPI server is designed to work with any frontend framework. Here are examples:
 
-```bash
-curl -X POST "http://localhost:5127/start-polling" \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml"}'
-```
-
-### WebSocket Client Example (JavaScript)
+### ⚛️ React Integration
 
 ```javascript
+// Connect to WebSocket
 const ws = new WebSocket('ws://localhost:5127/ws');
 
 ws.onopen = function(event) {
-    console.log('Connected to WebSocket');
+    console.log('Connected to Stock-x Tracker');
 };
 
 ws.onmessage = function(event) {
@@ -138,68 +163,75 @@ ws.onmessage = function(event) {
     
     switch(data.type) {
         case 'initial_data':
-            console.log(`Loaded ${data.count} initial items`);
+            // Load initial announcements
+            setAnnouncements(data.items);
             break;
         case 'new_items':
-            console.log(`Received ${data.count} new items`);
-            data.items.forEach(item => {
-                console.log(`New: ${item.title}`);
-            });
+            // Add new announcements
+            setAnnouncements(prev => [...data.items, ...prev]);
             break;
         case 'status_update':
-            console.log(`Polling is now: ${data.polling_active ? 'active' : 'inactive'}`);
+            setPollingActive(data.polling_active);
             break;
     }
 };
 
-// Send a ping
-ws.send(JSON.stringify({type: 'ping'}));
+// Fetch initial data via REST API
+const response = await fetch('http://localhost:5127/items');
+const data = await response.json();
 ```
 
-### Python Client Example
+### 🟨 Vanilla JavaScript Example
 
-```python
-import asyncio
-import websockets
-import json
+```javascript
+const ws = new WebSocket('ws://localhost:5127/ws');
 
-async def client():
-    uri = "ws://localhost:5127/ws"
-    async with websockets.connect(uri) as websocket:
-        # Send a ping
-        await websocket.send(json.dumps({"type": "ping"}))
-        
-        # Listen for messages
-        async for message in websocket:
-            data = json.loads(message)
-            print(f"Received: {data['type']}")
-            
-            if data['type'] == 'new_items':
-                print(f"New items: {len(data['items'])}")
+ws.onopen = function(event) {
+    console.log('Connected to WebSocket');
+    
+    // Start polling automatically
+    fetch('http://localhost:5127/start-polling', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({})
+    });
+};
 
-asyncio.run(client())
+ws.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    
+    if (data.type === 'new_items') {
+        data.items.forEach(item => {
+            console.log(`New announcement: ${item.title}`);
+            // Update your UI here
+        });
+    }
+};
 ```
 
-## Configuration
+## ⚙️ Configuration
 
-### Default Settings
+### 🔧 Default Settings
 
-- **Server**: localhost:5127
-- **Polling Interval**: 5 seconds
-- **Default RSS URL**: NSE Announcements feed
-- **Database**: SQLite (`seen_items.db`)
-- **Max Stored Items**: 500
+- **🌐 Server**: localhost:5127
+- **⏰ Polling Interval**: 5 seconds
+- **📡 RSS URL**: `https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml`
+- **💾 Database**: SQLite (`seen_items.db` in application directory)
+- **📊 Max Stored Items**: 100 (configurable)
+- **🧠 Memory Cache**: 500 identifiers for fast duplicate detection
 
-### Environment Variables
+### 🎛️ Customization
 
-You can customize behavior by modifying the source code or by setting these variables in your environment:
+You can modify these settings in the source files:
 
-- Database file location is configurable in `tracking.py`
-- Polling interval can be adjusted in `fastapi_server.py`
+- **⏰ Polling interval**: Change `await asyncio.sleep(5)` in `fastapi_server.py`
+- **🔌 Port**: Modify `port=5127` in `main.py` and `fastapi_server.py`
+- **📊 Max items**: Adjust `MAX_STORED_IDENTIFIERS` in `tracking.py`
+- **📡 RSS URL**: Change default URL in API calls
 
-## Database Schema
+## 🗄️ Database Schema
 
-The SQLite database stores items with the following schema:
+SQLite database with optimized indexes:
 
 ```sql
 CREATE TABLE seen_items (
@@ -208,91 +240,117 @@ CREATE TABLE seen_items (
     title TEXT,
     description TEXT,
     link TEXT,
-    identifier TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(timestamp, title)
+    identifier TEXT UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Optimized indexes for performance
+CREATE INDEX idx_timestamp_identifier ON seen_items(timestamp DESC, identifier);
+CREATE INDEX idx_identifier ON seen_items(identifier);
+CREATE INDEX idx_created_at ON seen_items(created_at DESC);
 ```
 
-## Architecture
+## 🏗️ Architecture
 
-### Components
+### 🧩 Components
 
-1. **FastAPI Server** (`fastapi_server.py`): Main server with REST and WebSocket endpoints
-2. **Tracking Module** (`tracking.py`): RSS feed processing and database operations
-3. **WebSocket Manager**: Handles multiple client connections
-4. **Background Polling**: Asynchronous RSS feed monitoring
+1. **🚀 Main Entry Point** (`main.py`): Executable entry point and server orchestration
+2. **🔌 FastAPI Server** (`fastapi_server.py`): REST API and WebSocket endpoints
+3. **📊 Tracking Module** (`tracking.py`): RSS processing, browser automation, and database operations
+4. **🔌 WebSocket Manager**: Real-time client connection management
+5. **🔄 Background Polling**: Asynchronous RSS feed monitoring
 
-### Data Flow
+### 📊 Data Flow
 
-1. Background task polls RSS feed every 5 seconds
-2. New items are detected using composite key (timestamp + title)
-3. New items are saved to SQLite database
-4. All connected WebSocket clients receive new items in real-time
-5. REST API provides access to stored data
+1. 🤖 SeleniumBase browser fetches RSS feed content (handles anti-bot measures)
+2. 🔍 BeautifulSoup parses XML content for new items
+3. 🛡️ Duplicate detection using content-based identifiers
+4. 💾 New items saved to SQLite database with batch operations
+5. 📡 Real-time broadcast to all connected WebSocket clients
+6. 🔌 REST API provides access to stored announcements
 
-## Error Handling
+## 🤖 Browser Automation
 
-- **WebSocket Disconnections**: Automatically cleaned up
-- **RSS Feed Errors**: Logged and broadcast to clients
-- **Database Errors**: Gracefully handled with logging
-- **Duplicate Items**: Silently ignored using composite unique constraint
+Uses SeleniumBase with undetected Chrome to:
+- 🛡️ Handle Cloudflare and other anti-bot protections
+- 🔄 Rotate user agents automatically
+- 💾 Maintain persistent browser sessions for efficiency
+- 🔄 Automatically refresh browser sessions after 20 uses
 
-## Security Considerations
+## 🚨 Error Handling
 
-- CORS is enabled for all origins (suitable for development)
-- No authentication implemented (add as needed)
-- Database uses SQLite (suitable for single-instance deployment)
+- **🔌 WebSocket Disconnections**: Automatically cleaned up
+- **📡 RSS Feed Errors**: Logged and broadcast to clients with error messages
+- **💾 Database Errors**: Graceful handling with transaction rollbacks
+- **🤖 Browser Errors**: Automatic browser session reinitialization
+- **🛡️ Duplicate Items**: Efficiently handled using unique constraints
 
-## Troubleshooting
+## ⚡ Performance Optimizations
 
-### Common Issues
+- **📦 Batch Database Operations**: Multiple items inserted in single transaction
+- **🧠 Memory Caching**: Recent identifiers cached for O(1) duplicate detection
+- **🚪 Early Exit**: Stops processing when consecutive known items found
+- **💾 Persistent Browser**: Reuses browser sessions to avoid initialization overhead
+- **📊 Database Indexing**: Optimized indexes for fast queries
 
-1. **Port 5127 already in use**:
+## 🔧 Troubleshooting
+
+### ⚠️ Common Issues
+
+1. **🔌 Port 5127 already in use**:
    ```bash
-   # Change port in fastapi_server.py or kill existing process
+   # Windows
    netstat -ano | findstr :5127
+   # Kill process if needed
+   taskkill /PID <PID> /F
    ```
 
-2. **WebSocket connection fails**:
-   - Ensure server is running
-   - Check firewall settings
-   - Verify URL format
+2. **💾 Database location issues with executable**:
+   - Database is created in same directory as .exe file
+   - Check logs for actual database path
+   - Ensure write permissions in executable directory
 
-3. **No items appearing**:
+3. **🤖 Browser automation fails**:
+   - Ensure Chrome browser is installed
+   - Check if antivirus is blocking browser automation
+   - Try running as administrator
+
+4. **📡 No new items detected**:
    - Check if polling is active via `/status` endpoint
-   - Verify RSS feed URL is accessible
-   - Check server logs for errors
+   - Verify RSS feed is accessible in browser
+   - Check server logs for parsing errors
 
-### Debug Mode
+### 🐛 Debug Mode
 
-Run with debug logging:
+Enable detailed logging:
 
 ```python
 import logging
 logging.basicConfig(level=logging.DEBUG)
 ```
 
-## Migration from PyQt Version
+## 🚀 Deployment
 
-The FastAPI server replaces the PyQt desktop application with the following mapping:
+### 🏠 Local Development
+```bash
+python main.py
+```
 
-| PyQt Feature | FastAPI Equivalent |
-|--------------|-------------------|
-| GUI List Widget | WebSocket real-time updates |
-| Start/Stop Buttons | REST API endpoints |
-| Status Display | WebSocket status messages |
-| Item Highlighting | Client-side implementation |
-| Link Opening | HTML client with clickable links |
+### 🌐 Production Deployment
+```bash
+# Using uvicorn directly
+uvicorn fastapi_server:app --host 0.0.0.0 --port 5127
 
-## Contributing
+# Using Docker (create Dockerfile as needed)
+# Using systemd service (Linux)
+# Using Windows Service (Windows)
+```
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test with the included HTML client
-5. Submit a pull request
+### 📦 Standalone Executable
+- Use auto-py-to-exe to create distributable executable
+- Database and logs will be created in executable directory
+- No Python installation required on target machine
 
-## License
+## 📄 License
 
 This project is provided as-is for educational and development purposes. 

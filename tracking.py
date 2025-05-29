@@ -6,6 +6,7 @@ import hashlib
 import sqlite3
 import json
 import os
+import sys  # Add sys import for executable detection
 import random # Keep for now, might not be needed with SB UC
 import time # Keep for potential waits if needed
 
@@ -15,7 +16,21 @@ from seleniumbase import Driver
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Constants for persistent storage
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) # Get the directory of the current script
+def get_script_directory():
+    """Get the directory where the script/executable is located, handling PyInstaller executables."""
+    if getattr(sys, 'frozen', False):
+        # Running as a PyInstaller executable
+        # Use the directory of the executable
+        script_dir = os.path.dirname(sys.executable)
+        logging.info(f"Running as executable, using directory: {script_dir}")
+    else:
+        # Running as a normal Python script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        logging.info(f"Running as script, using directory: {script_dir}")
+    
+    return script_dir
+
+SCRIPT_DIR = get_script_directory()
 DATABASE_FILE = os.path.join(SCRIPT_DIR, 'seen_items.db') # SQLite database file
 MAX_STORED_IDENTIFIERS = 100
 # In-memory cache for recent identifiers (keep more in memory for faster lookups)
@@ -399,6 +414,7 @@ def get_persistent_browser():
 # Initialize database on module load
 init_database()
 logging.info(f"Database file path: {os.path.abspath(DATABASE_FILE)}")
+logging.info(f"Application directory: {SCRIPT_DIR}")
 
 # Load seen items on module initialization
 seen_item_objects_list, seen_item_identifiers_set = load_seen_items()

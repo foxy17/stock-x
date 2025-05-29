@@ -15,9 +15,23 @@ import time
 import webbrowser
 from pathlib import Path
 
-# Add the current directory to Python path to ensure imports work
-current_dir = Path(__file__).parent.absolute()
-sys.path.insert(0, str(current_dir))
+def get_application_directory():
+    """Get the directory where the application is located, handling PyInstaller executables."""
+    if getattr(sys, 'frozen', False):
+        # Running as a PyInstaller executable
+        # Use the directory of the executable
+        app_dir = os.path.dirname(sys.executable)
+        print(f"Running as executable, using directory: {app_dir}")
+    else:
+        # Running as a normal Python script
+        app_dir = Path(__file__).parent.absolute()
+        print(f"Running as script, using directory: {app_dir}")
+    
+    return str(app_dir)
+
+# Add the application directory to Python path to ensure imports work
+current_dir = get_application_directory()
+sys.path.insert(0, current_dir)
 
 try:
     import uvicorn
@@ -35,7 +49,7 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler('nse_tracker.log', mode='a')
+        logging.FileHandler(os.path.join(current_dir, 'nse_tracker.log'), mode='a')
     ]
 )
 
