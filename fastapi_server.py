@@ -138,7 +138,11 @@ async def poll_for_new_items():
             new_items = get_new_items(polling_url)
             
             if new_items:
-                logging.info(f"Found {len(new_items)} new items")
+                logging.info(f"✓ Found {len(new_items)} new items during polling")
+                
+                # Log the titles of new items
+                for item in new_items:
+                    logging.info(f"  - New item: {item['title'][:60]}...")
                 
                 # Format items for WebSocket transmission
                 items_data = {
@@ -159,11 +163,12 @@ async def poll_for_new_items():
                 
                 # Broadcast to all connected clients
                 await manager.broadcast_json(items_data)
+                logging.info(f"✓ Broadcasted {len(new_items)} new items to {len(manager.active_connections)} connected clients")
             else:
-                logging.info("No new items found")
+                logging.info("No new items found during polling")
                 
         except Exception as e:
-            logging.error(f"Error during polling: {e}")
+            logging.error(f"✗ Error during polling: {e}")
             error_data = {
                 "type": "error",
                 "message": f"Polling error: {str(e)}",
@@ -193,8 +198,9 @@ def get_latest_items_sorted(items: List[Dict], limit: int = 100) -> List[Dict]:
                 return datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
             except (ValueError, TypeError):
                 try:
-                    # Try common formats
+                    # Try common formats including the NSE format
                     for fmt in [
+                        '%d-%b-%Y %H:%M:%S',  # 29-May-2025 07:00:00
                         '%Y-%m-%d %H:%M:%S',
                         '%Y-%m-%d',
                         '%d-%m-%Y %H:%M:%S',

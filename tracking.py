@@ -131,13 +131,26 @@ def save_seen_items(item_objects_list, db_path=DATABASE_FILE, max_items=MAX_STOR
 
 def add_new_item(item_object, db_path=DATABASE_FILE):
     """Add a single new item to the SQLite database."""
+    abs_db_path = os.path.abspath(db_path)
+    logging.info(f"Attempting to add new item to database: {abs_db_path}")
+    logging.debug(f"Item details: {item_object['title'][:50]}... (ID: {item_object['identifier'][:20]}...)")
+    
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Insert the new item (will be ignored if identifier already exists)
+        # Check if item already exists first
+        cursor.execute('SELECT COUNT(*) FROM seen_items WHERE identifier = ?', (item_object['identifier'],))
+        existing_count = cursor.fetchone()[0]
+        
+        if existing_count > 0:
+            logging.debug(f"Item already exists in database (duplicate identifier): {item_object['title'][:50]}...")
+            conn.close()
+            return False
+        
+        # Insert the new item
         cursor.execute('''
-            INSERT OR IGNORE INTO seen_items (timestamp, title, description, link, identifier)
+            INSERT INTO seen_items (timestamp, title, description, link, identifier)
             VALUES (?, ?, ?, ?, ?)
         ''', (
             item_object['timestamp'],
@@ -148,26 +161,28 @@ def add_new_item(item_object, db_path=DATABASE_FILE):
         ))
         
         if cursor.rowcount > 0:
-            logging.info(f"Added new item to database: {item_object['title'][:50]}...")
+            logging.info(f"✓ Successfully added new item to database: {item_object['title'][:50]}...")
             conn.commit()
             conn.close()
             return True
         else:
-            logging.debug(f"Item already exists in database (duplicate identifier): {item_object['title'][:50]}...")
+            logging.warning(f"✗ Failed to add item to database (no rows affected): {item_object['title'][:50]}...")
             conn.close()
             return False
         
     except sqlite3.Error as e:
-        logging.error(f"Error adding item to database: {e}")
+        logging.error(f"✗ Database error adding item: {e}")
         return False
 
 # --- End Database Functions ---
 
 # Initialize database on module load
 init_database()
+logging.info(f"Database file path: {os.path.abspath(DATABASE_FILE)}")
 
 # Load seen items on module initialization
 seen_item_objects_list, seen_item_identifiers_set = load_seen_items()
+logging.info(f"Module initialization complete. Loaded {len(seen_item_objects_list)} items, {len(seen_item_identifiers_set)} unique identifiers")
 
 # Define User Agents - Keep for now, SB UC might handle this or we might re-add if needed
 USER_AGENTS = [
@@ -180,6 +195,14 @@ USER_AGENTS = [
 
 def get_initial_items():
     """Returns the list of item objects loaded at startup."""
+    global seen_item_objects_list, seen_item_identifiers_set
+    
+    # If in-memory list is empty, reload from database
+    if not seen_item_objects_list:
+        logging.warning("In-memory item list is empty, reloading from database...")
+        seen_item_objects_list, seen_item_identifiers_set = load_seen_items()
+    
+    logging.info(f"Returning {len(seen_item_objects_list)} items from get_initial_items()")
     # Return a copy to prevent external modification of the original list
     return list(seen_item_objects_list)
 
