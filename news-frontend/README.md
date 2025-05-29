@@ -64,6 +64,29 @@ npm run build
 npm run preview
 ```
 
+## 🚀 Deployment
+
+### GitHub Pages Deployment
+This application is configured for easy deployment to GitHub Pages.
+
+**Quick Deploy:**
+1. Ensure you're on the `main` branch
+2. Push your changes - GitHub Actions will automatically deploy
+3. Enable GitHub Pages in repository settings (Settings → Pages → Source: gh-pages)
+
+**Manual Deploy:**
+```bash
+npm run deploy
+```
+
+📖 **For detailed deployment instructions, troubleshooting, and configuration options, see [DEPLOYMENT.md](./DEPLOYMENT.md)**
+
+### Live Demo
+Once deployed, the app will be available at:
+```
+https://YOUR_USERNAME.github.io/stock-x/
+```
+
 ## Configuration
 
 ### WebSocket URL
@@ -129,6 +152,7 @@ const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
 - `npm run build` - Build for production
 - `npm run preview` - Preview production build
 - `npm run lint` - Run ESLint
+- `npm run deploy` - Deploy to GitHub Pages
 
 ### Code Style
 - TypeScript strict mode enabled
@@ -147,12 +171,18 @@ const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
 2. Monitor WebSocket message frequency
 3. Ensure proper cleanup of event listeners
 
+### Deployment Issues
+- Check [DEPLOYMENT.md](./DEPLOYMENT.md) for comprehensive troubleshooting guide
+- Verify base path configuration in `vite.config.ts`
+- Ensure GitHub Pages is properly configured
+
 ## Contributing
 
 1. Follow the existing code style and patterns
 2. Add TypeScript types for all new interfaces
 3. Include responsive CSS for mobile devices
 4. Test WebSocket connection edge cases
+5. Update documentation when adding new features
 
 ## License
 

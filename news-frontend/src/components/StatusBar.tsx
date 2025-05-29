@@ -1,4 +1,4 @@
-import { WebSocketState } from '../hooks/useWebSocket';
+import type { WebSocketState } from '../hooks/useWebSocket';
 import './StatusBar.css';
 
 interface StatusBarProps {

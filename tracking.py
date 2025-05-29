@@ -9,13 +9,7 @@ import os
 import random # Keep for now, might not be needed with SB UC
 import time # Keep for potential waits if needed
 
-# Import SeleniumBase
 from seleniumbase import Driver
-# Removed selenium-wire/uc imports
-# import seleniumwire.undetected_chromedriver as uc
-# from selenium.webdriver.chrome.options import Options
-# Removed Selenium exceptions, SB might handle differently or raise its own
-# from selenium.common.exceptions import WebDriverException, TimeoutException
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
