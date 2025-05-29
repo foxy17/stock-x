@@ -1,0 +1,104 @@
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px 20px;
+  background: #2a2a2a;
+  border-radius: 8px;
+  border: 1px solid #404040;
+  margin-bottom: 24px;
+  color: #cccccc;
+  font-size: 0.9em;
+}
+
+.status-bar__section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-bar__error {
+  background: #3a2a2a;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #555555;
+}
+
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+
+.polling-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #666666;
+  transition: all 0.3s ease;
+}
+
+.polling-indicator--active {
+  background-color: #cccccc;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.2);
+  }
+}
+
+.status-text {
+  font-weight: 500;
+}
+
+.error-text {
+  color: #ff9999;
+  font-weight: 500;
+}
+
+.reconnect-button {
+  background: #555555;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 500;
+}
+
+.reconnect-button:hover {
+  background: #666666;
+  transform: translateY(-1px);
+}
+
+.reconnect-button:active {
+  transform: translateY(0);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .status-bar {
+    padding: 12px 16px;
+    gap: 12px;
+  }
+  
+  .status-bar__section {
+    gap: 6px;
+  }
+  
+  .status-bar {
+    font-size: 0.85em;
+  }
+} 

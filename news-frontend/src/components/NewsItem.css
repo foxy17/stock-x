@@ -1,0 +1,132 @@
+.news-item {
+  background: #333333;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: 1px solid #404040;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.news-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  border-color: #555555;
+  background: #3a3a3a;
+}
+
+.news-item:focus {
+  outline: 2px solid #cccccc;
+  outline-offset: 2px;
+}
+
+.news-item__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  gap: 16px;
+}
+
+.news-item__title {
+  margin: 0;
+  font-size: 1.2em;
+  font-weight: 600;
+  color: white;
+  line-height: 1.4;
+  flex: 1;
+  text-align: left;
+}
+
+.news-item__timestamp {
+  font-size: 0.85em;
+  color: white;
+  white-space: nowrap;
+  background: #1a1a1a;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #555555;
+  font-weight: 500;
+}
+
+.news-item__description {
+  color: #cccccc;
+  line-height: 1.6;
+  margin-bottom: 12px;
+  font-size: 0.95em;
+  text-align: left;
+}
+
+.news-item__footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.news-item__link-indicator {
+  font-size: 0.85em;
+  color: #999999;
+  font-style: italic;
+  transition: color 0.3s ease;
+}
+
+.news-item:hover .news-item__link-indicator {
+  color: #cccccc;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .news-item {
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  
+  .news-item__header {
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .news-item__timestamp {
+    align-self: flex-start;
+  }
+  
+  .news-item__title {
+    font-size: 1.1em;
+  }
+}
+
+/* New item highlight styles */
+.news-item--highlight-green {
+  background: linear-gradient(135deg, #1b5e20 0%, #388e3c 100%) !important;
+  border-color: #4caf50 !important;
+  animation: highlightPulse 0.5s ease-in-out;
+}
+
+.news-item--highlight-red {
+  background: linear-gradient(135deg, #b71c1c 0%, #d32f2f 100%) !important;
+  border-color: #f44336 !important;
+  animation: highlightPulse 0.5s ease-in-out;
+}
+
+.news-item--highlight-green:hover,
+.news-item--highlight-red:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes highlightPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    transform: scale(1.02);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  }
+} 
