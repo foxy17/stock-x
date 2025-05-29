@@ -4,6 +4,7 @@ from typing import List, Set, Dict, Any
 from datetime import datetime
 import json
 from contextlib import asynccontextmanager
+from email.utils import parsedate_to_datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -64,12 +65,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Global state for WebSocket connections and polling
-connected_clients: List[WebSocket] = []
-polling_active: bool = False
-polling_url: str = "https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml"
-polling_task: asyncio.Task = None
 
 # Pydantic models for API responses
 class Item(BaseModel):
@@ -179,6 +174,53 @@ async def poll_for_new_items():
         # Wait before next poll (5 seconds)
         await asyncio.sleep(5)
 
+def get_latest_items_sorted(items: List[Dict], limit: int = 100) -> List[Dict]:
+    """
+    Sort items by timestamp (latest first) and return up to 'limit' items.
+    Handles various timestamp formats gracefully.
+    """
+    def parse_timestamp(timestamp_str: str) -> datetime:
+        """Parse timestamp string into datetime object for sorting."""
+        if not timestamp_str:
+            return datetime.min
+        
+        try:
+            # Try parsing RFC 2822 format (common in RSS feeds)
+            return parsedate_to_datetime(timestamp_str)
+        except (ValueError, TypeError):
+            try:
+                # Try ISO format
+                return datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+            except (ValueError, TypeError):
+                try:
+                    # Try common formats
+                    for fmt in [
+                        '%Y-%m-%d %H:%M:%S',
+                        '%Y-%m-%d',
+                        '%d-%m-%Y %H:%M:%S',
+                        '%d-%m-%Y'
+                    ]:
+                        return datetime.strptime(timestamp_str, fmt)
+                except (ValueError, TypeError):
+                    pass
+        
+        # If all parsing fails, return minimum datetime to sort to end
+        logging.warning(f"Could not parse timestamp: {timestamp_str}")
+        return datetime.min
+    
+    try:
+        # Sort items by timestamp (latest first) and limit to specified number
+        sorted_items = sorted(
+            items,
+            key=lambda x: parse_timestamp(x.get("timestamp", "")),
+            reverse=True
+        )
+        return sorted_items[:limit]
+    except Exception as e:
+        logging.error(f"Error sorting items: {e}")
+        # Return last 'limit' items if sorting fails
+        return items[-limit:] if len(items) > limit else items
+
 # API Endpoints
 @app.get("/", response_model=Dict[str, str])
 async def root():
@@ -191,9 +233,11 @@ async def root():
 
 @app.get("/items", response_model=ItemsResponse)
 async def get_items():
-    """Get all items currently in the database"""
+    """Get the latest 100 items from the database, sorted by date (latest first)"""
     try:
-        items = get_initial_items()
+        all_items = get_initial_items()
+        latest_items = get_latest_items_sorted(all_items, limit=100)
+        
         return ItemsResponse(
             items=[
                 Item(
@@ -203,9 +247,9 @@ async def get_items():
                     link=item["link"],
                     identifier=item["identifier"]
                 )
-                for item in items
+                for item in latest_items
             ],
-            count=len(items)
+            count=len(latest_items)
         )
     except Exception as e:
         logging.error(f"Error getting items: {e}")
@@ -286,7 +330,9 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         # Send initial data to the newly connected client
-        initial_items = get_initial_items()
+        all_initial_items = get_initial_items()
+        latest_items = get_latest_items_sorted(all_initial_items, limit=100)
+        
         initial_data = {
             "type": "initial_data",
             "items": [
@@ -297,9 +343,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     "link": item["link"],
                     "identifier": item["identifier"]
                 }
-                for item in initial_items[-10:]  # Send last 10 items
+                for item in latest_items
             ],
-            "count": len(initial_items[-10:]),
+            "count": len(latest_items),
             "polling_active": polling_active,
             "url": polling_url,
             "timestamp": datetime.now().isoformat()

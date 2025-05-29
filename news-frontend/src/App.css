@@ -53,6 +53,7 @@
 
 .app__container {
   width: 100%;
+  min-width: 60dvw;
   max-width: 800px;
   height: 100%;
   max-height: calc(100vh - 40px);

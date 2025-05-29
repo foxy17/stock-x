@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 # Constants for persistent storage
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__)) # Get the directory of the current script
 DATABASE_FILE = os.path.join(SCRIPT_DIR, 'seen_items.db') # SQLite database file
-MAX_STORED_IDENTIFIERS = 500
+MAX_STORED_IDENTIFIERS = 100
 
 # --- Database Functions ---
 
@@ -33,7 +33,7 @@ def init_database(db_path=DATABASE_FILE):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Create table with composite unique constraint on timestamp + title
+        # Create table with unique constraint on identifier only
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS seen_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,14 +41,13 @@ def init_database(db_path=DATABASE_FILE):
                 title TEXT,
                 description TEXT,
                 link TEXT,
-                identifier TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(timestamp, title)
+                identifier TEXT UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
-        # Create index on timestamp and title for faster lookups
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_timestamp_title ON seen_items(timestamp, title)')
+        # Create index on identifier for faster lookups
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_identifier ON seen_items(identifier)')
         
         conn.commit()
         conn.close()
@@ -77,8 +76,8 @@ def load_seen_items(db_path=DATABASE_FILE):
         
         # Convert to the same format as before
         item_objects_list = []
-        # Track composite keys (timestamp + title) instead of just identifiers
-        composite_keys_set = set()
+        # Track identifiers instead of composite keys
+        identifiers_set = set()
         
         for row in rows:
             timestamp, title, description, link, identifier = row
@@ -90,12 +89,10 @@ def load_seen_items(db_path=DATABASE_FILE):
                 "identifier": identifier
             }
             item_objects_list.append(item_object)
-            # Create composite key from timestamp and title
-            composite_key = f"{timestamp}|{title}"
-            composite_keys_set.add(composite_key)
+            identifiers_set.add(identifier)
         
-        logging.info(f"Loaded {len(item_objects_list)} items ({len(composite_keys_set)} unique timestamp+title combinations) from {abs_db_path}")
-        return item_objects_list, composite_keys_set
+        logging.info(f"Loaded {len(item_objects_list)} items ({len(identifiers_set)} unique identifiers) from {abs_db_path}")
+        return item_objects_list, identifiers_set
         
     except sqlite3.Error as e:
         logging.error(f"Error loading seen items from {abs_db_path}: {e}. Starting fresh.")
@@ -124,7 +121,7 @@ def save_seen_items(item_objects_list, db_path=DATABASE_FILE, max_items=MAX_STOR
             ''', (max_items,))
             
             deleted_count = cursor.rowcount
-            logging.info(f"Trimmed seen items storage by removing {deleted_count} old items.")
+            logging.info(f"Trimmed seen items storage by removing {deleted_count} old items. Keeping {max_items} most recent items.")
         
         conn.commit()
         conn.close()
@@ -138,7 +135,7 @@ def add_new_item(item_object, db_path=DATABASE_FILE):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Insert the new item (will be ignored if timestamp+title combination already exists)
+        # Insert the new item (will be ignored if identifier already exists)
         cursor.execute('''
             INSERT OR IGNORE INTO seen_items (timestamp, title, description, link, identifier)
             VALUES (?, ?, ?, ?, ?)
@@ -151,15 +148,18 @@ def add_new_item(item_object, db_path=DATABASE_FILE):
         ))
         
         if cursor.rowcount > 0:
-            logging.debug(f"Added new item to database: {item_object['title'][:50]}...")
+            logging.info(f"Added new item to database: {item_object['title'][:50]}...")
+            conn.commit()
+            conn.close()
+            return True
         else:
-            logging.debug(f"Item already exists in database (timestamp+title duplicate): {item_object['title'][:50]}...")
-        
-        conn.commit()
-        conn.close()
+            logging.debug(f"Item already exists in database (duplicate identifier): {item_object['title'][:50]}...")
+            conn.close()
+            return False
         
     except sqlite3.Error as e:
         logging.error(f"Error adding item to database: {e}")
+        return False
 
 # --- End Database Functions ---
 
@@ -167,7 +167,7 @@ def add_new_item(item_object, db_path=DATABASE_FILE):
 init_database()
 
 # Load seen items on module initialization
-seen_item_objects_list, seen_item_composite_keys_set = load_seen_items()
+seen_item_objects_list, seen_item_identifiers_set = load_seen_items()
 
 # Define User Agents - Keep for now, SB UC might handle this or we might re-add if needed
 USER_AGENTS = [
@@ -268,11 +268,8 @@ def get_new_items(url):
                 content_to_hash = (title + description).encode('utf-8')
                 identifier = hashlib.sha256(content_to_hash).hexdigest()
 
-            # Create composite key from timestamp and title
-            composite_key = f"{pub_date}|{title}"
-            
-            # Check if this timestamp+title combination is already seen
-            if composite_key not in seen_item_composite_keys_set:
+            # Check if this identifier is already seen
+            if identifier not in seen_item_identifiers_set:
                 item_object = {
                     "timestamp": pub_date,
                     "title": title,
@@ -282,19 +279,17 @@ def get_new_items(url):
                 }
                 
                 # Add to SQLite database
-                add_new_item(item_object)
-                
-                # Update in-memory tracking
-                seen_item_objects_list.append(item_object)
-                seen_item_composite_keys_set.add(composite_key)
-                
-                new_items_found.append(item_object)
-                logging.info(f"New item found: {title[:50]}... (Published: {pub_date})")
-                
-                # Periodically clean up old items in database
-                save_seen_items(seen_item_objects_list)
+                if add_new_item(item_object):
+                    # Update in-memory tracking only if successfully added to DB
+                    seen_item_objects_list.append(item_object)
+                    seen_item_identifiers_set.add(identifier)
+                    new_items_found.append(item_object)
+                    logging.info(f"New item found: {title[:50]}... (Published: {pub_date})")
+                    
+                    # Trim database if it exceeds the limit
+                    save_seen_items(seen_item_objects_list)
             else:
-                logging.debug(f"Duplicate item skipped (timestamp+title already exists): {title[:50]}... (Published: {pub_date})")
+                logging.debug(f"Duplicate item skipped (identifier already exists): {title[:50]}... (Published: {pub_date})")
 
     except Exception as e:
         logging.error(f"Error parsing content from {url}: {e}", exc_info=True) # Log traceback for parsing errors

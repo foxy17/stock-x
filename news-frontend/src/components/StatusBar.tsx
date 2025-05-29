@@ -6,6 +6,52 @@ interface StatusBarProps {
   onReconnect?: () => void;
 }
 
+// API functions to control polling
+const startPolling = async (url: string = "https://nsearchives.nseindia.com/content/RSS/Online_announcements.xml") => {
+  try {
+    const response = await fetch('http://localhost:5127/start-polling', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ url }),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log('Polling started:', result);
+    return result;
+  } catch (error) {
+    console.error('Error starting polling:', error);
+    throw error;
+  }
+};
+
+const stopPolling = async () => {
+  try {
+    const response = await fetch('http://localhost:5127/stop-polling', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    console.log('Polling stopped:', result);
+    return result;
+  } catch (error) {
+    console.error('Error stopping polling:', error);
+    throw error;
+  }
+};
+
 export const StatusBar: React.FC<StatusBarProps> = ({ status, onReconnect }) => {
   const getStatusColor = () => {
     switch (status.connectionStatus) {
@@ -42,6 +88,32 @@ export const StatusBar: React.FC<StatusBarProps> = ({ status, onReconnect }) => 
     return status.isPollingActive ? 'Polling Active' : 'Polling Inactive';
   };
 
+  const handleStartPolling = async () => {
+    if (!status.isConnected) {
+      console.warn('Cannot start polling: not connected to server');
+      return;
+    }
+    
+    try {
+      await startPolling();
+    } catch (error) {
+      console.error('Failed to start polling:', error);
+    }
+  };
+
+  const handleStopPolling = async () => {
+    if (!status.isConnected) {
+      console.warn('Cannot stop polling: not connected to server');
+      return;
+    }
+    
+    try {
+      await stopPolling();
+    } catch (error) {
+      console.error('Failed to stop polling:', error);
+    }
+  };
+
   return (
     <div className="status-bar">
       <div className="status-bar__section">
@@ -58,6 +130,30 @@ export const StatusBar: React.FC<StatusBarProps> = ({ status, onReconnect }) => 
             className={`polling-indicator ${status.isPollingActive ? 'polling-indicator--active' : ''}`}
           />
           <span className="status-text">{getPollingText()}</span>
+        </div>
+      )}
+
+      {status.isConnected && (
+        <div className="status-bar__section">
+          <div className="polling-controls">
+            {!status.isPollingActive ? (
+              <button 
+                className="polling-button polling-button--start"
+                onClick={handleStartPolling}
+                title="Start polling for new announcements"
+              >
+                ▶ Start
+              </button>
+            ) : (
+              <button 
+                className="polling-button polling-button--stop"
+                onClick={handleStopPolling}
+                title="Stop polling for new announcements"
+              >
+                ⏸ Stop
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -82,4 +178,4 @@ export const StatusBar: React.FC<StatusBarProps> = ({ status, onReconnect }) => 
       )}
     </div>
   );
-}; 
+};
