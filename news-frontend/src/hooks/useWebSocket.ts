@@ -26,6 +26,65 @@ export interface WebSocketState {
   connectionStatus: 'connecting' | 'connected' | 'disconnected' | 'error';
 }
 
+// Constants for item limits
+const MAX_ITEMS_IN_STATE = 5000;
+
+// Utility function to sort items by timestamp (latest first)
+const sortItemsByTimestamp = (items: NewsItem[]): NewsItem[] => {
+  const parseTimestamp = (timestamp: string): Date => {
+    if (!timestamp) return new Date(0);
+    
+    try {
+      // Try parsing RFC 2822 format (common in RSS feeds)
+      const date = new Date(timestamp);
+      if (!isNaN(date.getTime())) return date;
+    } catch {
+      // eslint-disable-line no-empty -- Fall through to next parsing method
+    }
+    
+    try {
+      // Try ISO format
+      return new Date(timestamp.replace('Z', '+00:00'));
+    } catch {
+      // eslint-disable-line no-empty -- Fall through to next parsing method
+    }
+    
+    try {
+      // Try common formats including the NSE format
+      // Simple date parsing for common formats
+      const dateStr = timestamp.trim();
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+        return new Date(dateStr);
+      }
+      if (dateStr.match(/^\d{1,2}-\w{3}-\d{4}/)) {
+        // Convert format like "29-May-2025 07:00:00" to parseable format
+        const converted = dateStr.replace(/(\d{1,2})-(\w{3})-(\d{4})/, '$2 $1, $3');
+        return new Date(converted);
+      }
+    } catch {
+      // eslint-disable-line no-empty -- Fall through to default case
+    }
+    
+    // If all parsing fails, return minimum date
+    console.warn(`Could not parse timestamp: ${timestamp}`);
+    return new Date(0);
+  };
+
+  return items.sort((a, b) => {
+    const dateA = parseTimestamp(a.timestamp);
+    const dateB = parseTimestamp(b.timestamp);
+    return dateB.getTime() - dateA.getTime(); // Latest first
+  });
+};
+
+// Utility function to limit items array to max count, keeping latest items
+const limitItemsArray = (items: NewsItem[], maxItems: number): NewsItem[] => {
+  if (items.length <= maxItems) return items;
+  
+  const sorted = sortItemsByTimestamp(items);
+  return sorted.slice(0, maxItems);
+};
+
 export const useWebSocket = (url: string) => {
   const [state, setState] = useState<WebSocketState>({
     items: [],
@@ -36,7 +95,7 @@ export const useWebSocket = (url: string) => {
   });
 
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const maxReconnectAttempts = 5;
 
@@ -72,14 +131,18 @@ export const useWebSocket = (url: string) => {
 
             switch (message.type) {
               case 'initial_data':
-                newState.items = message.items || [];
+                // Set initial items, limiting to MAX_ITEMS_IN_STATE
+                newState.items = limitItemsArray(message.items || [], MAX_ITEMS_IN_STATE);
                 newState.isPollingActive = message.polling_active || false;
+                console.log(`Set initial items: ${newState.items.length} items (limited from ${(message.items || []).length})`);
                 break;
               
               case 'new_items':
-                // Add new items to the beginning of the list
+                // Add new items to the beginning of the list and limit total
                 if (message.items) {
-                  newState.items = [...message.items, ...prev.items];
+                  const combinedItems = [...message.items, ...prev.items];
+                  newState.items = limitItemsArray(combinedItems, MAX_ITEMS_IN_STATE);
+                  console.log(`Added ${message.items.length} new items, total now: ${newState.items.length} (limited to ${MAX_ITEMS_IN_STATE})`);
                 }
                 break;
               
@@ -172,7 +235,7 @@ export const useWebSocket = (url: string) => {
     }));
   }, []);
 
-  const sendMessage = useCallback((message: any) => {
+  const sendMessage = useCallback((message: Record<string, unknown>) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
     } else {
